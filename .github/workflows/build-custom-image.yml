@@ -71,16 +71,11 @@ jobs:
           # Rename the downloaded image to our custom name
           mv ${{ env.IMAGE_FILE_BASE }}.qcow2 /tmp/${{ env.CUSTOM_IMAGE_FILE }}
 
-          # Workaround: move passt executable temporarily
-          PASST_PATH=$(which passt)
-          sudo mv $PASST_PATH $PASST_PATH.bak
-
           echo "Running virt-customize with args: ${{ inputs.customize_args }}"
 
           # virt-customize modifies the image file in-place
           # The shell will correctly parse the space-separated arguments from the input
           sudo LIBGUESTFS_BACKEND=direct LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1 virt-customize -x -a /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ inputs.customize_args }}
-          sudo mv $PASST_PATH.bak $PASST_PATH
 
           # After sudo, the file is owned by root. Change ownership back
           # to the runner user so the 'gzip' and 'upload' steps can read it.
