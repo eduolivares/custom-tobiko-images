@@ -16,7 +16,14 @@ on:
         required: true
         # Example from the tobiko role: install packages and set hostname
         default: >-
+          --copy-in /tmp/config:/etc/selinux
+          --firstboot-command 'sh -c \"nmcli connection add type vlan con-name vlan101 ifname vlan101 vlan.parent eth0 vlan.id 101 ipv6.addr-gen-mode default-or-eui64;
+          nmcli connection add type vlan con-name vlan101 ifname vlan101 vlan.parent ens3 vlan.id 101 ipv6.addr-gen-mode default-or-eui64\"'
           --install iperf3,iputils,nmap,nmap-ncat,nginx
+          --copy-in /tmp/nginx_id.conf:/etc/nginx/conf.d
+          --run-command 'systemctl enable nginx'
+          --copy-in /tmp/iperf3-server.service:/etc/systemd/system
+          --run-command 'systemctl enable iperf3-server'
           --root-password password:tobiko
           --selinux-relabel
 
@@ -36,13 +43,19 @@ jobs:
       CUSTOM_IMAGE_FILE: fedora-custom-${{ inputs.fedora_version }}.qcow2
       COMPRESSED_ARTIFACT_NAME: fedora-custom-${{ inputs.fedora_version }}.qcow2.gz
 
-      # Run virt-customize with LIBGUESTFS_BACKEND=direct
-      LIBGUESTFS_BACKEND: direct
-      LIBGUESTFS_DEBUG: '1'
-      LIBGUESTFS_TRACE: '1'
-
     steps:
-      - name: 1. Extract Fedora Major Version and Construct URL
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Prepare Config Files
+        run: |
+          # Copy config files from the repository to /tmp for virt-customize
+          cp .github/workflows/config /tmp/config
+          cp .github/workflows/nginx_id.conf /tmp/nginx_id.conf
+          cp .github/workflows/iperf3-server.service /tmp/iperf3-server.service
+          echo "Config files copied to /tmp"
+
+      - name: 3. Extract Fedora Major Version and Construct URL
         id: setup
         run: |
           # Extract major version from fedora_version (e.g., "42" from "42-1.1")
@@ -55,41 +68,42 @@ jobs:
           echo "image_url=$IMAGE_URL" >> $GITHUB_OUTPUT
           echo "Download URL: $IMAGE_URL"
 
-      - name: 2. Install Dependencies
+      - name: 4. Install Dependencies
         run: |
-          echo "Installing libguestfs-tools (for virt-customize), wget, and xz-utils..."
+          echo "Installing libguestfs-tools (for virt-customize), wget and gzip"
           sudo apt-get update
-          sudo apt-get install -y libguestfs-tools wget xz-utils gzip
+          sudo apt-get install -y libguestfs-tools wget gzip
 
-      - name: 3. Download Base Fedora Image
+      - name: 5. Download Base Fedora Image
         run: |
           echo "Downloading from ${{ steps.setup.outputs.image_url }}"
           wget -O ${{ env.IMAGE_FILE_BASE }}.qcow2 ${{ steps.setup.outputs.image_url }}
 
-      - name: 4. Rename and Customize Image
+      - name: 6. Rename and Customize Image
         run: |
-          # Rename the downloaded image to our custom name
-          mv ${{ env.IMAGE_FILE_BASE }}.qcow2 /tmp/${{ env.CUSTOM_IMAGE_FILE }}
+          # Copy the downloaded image to /tmp and give it our custom name
+          sudo cp ${{ env.IMAGE_FILE_BASE }}.qcow2 /tmp/${{ env.CUSTOM_IMAGE_FILE }}
 
           echo "Running virt-customize with args: ${{ inputs.customize_args }}"
 
           # virt-customize modifies the image file in-place
           # The shell will correctly parse the space-separated arguments from the input
-          sudo LIBGUESTFS_BACKEND=direct LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1 virt-customize -x -a /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ inputs.customize_args }}
+          sudo LIBGUESTFS_BACKEND=direct virt-customize -x -a /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ inputs.customize_args }}
 
-          # After sudo, the file is owned by root. Change ownership back
-          # to the runner user so the 'gzip' and 'upload' steps can read it.
-          echo "Resetting file ownership..."
+          # Move the customized image back to the working directory
           sudo mv /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ env.CUSTOM_IMAGE_FILE }}
+
+          # Change ownership back to the runner user so the 'gzip' and 'upload' steps can read it
+          echo "Resetting file ownership..."
           sudo chown $(whoami):$(whoami) ${{ env.CUSTOM_IMAGE_FILE }}
 
-      - name: 5. Compress Customized Image
+      - name: 7. Compress Customized Image
         run: |
           echo "Compressing ${{ env.CUSTOM_IMAGE_FILE }} for release..."
           gzip -k -9 ${{ env.CUSTOM_IMAGE_FILE }}
           echo "Compressed artifact is: ${{ env.COMPRESSED_ARTIFACT_NAME }}"
 
-      - name: 6. Create GitHub Release and Upload Artifact
+      - name: 8. Create GitHub Release and Upload Artifact
         uses: softprops/action-gh-release@v2
         with:
           # This is the tag you provided as input
