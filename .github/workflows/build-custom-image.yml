@@ -1,0 +1,116 @@
+name: Build Customized Fedora Image
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      fedora_version:
+        description: 'Fedora version (e.g., 42-1.1)'
+        required: true
+        default: '42-1.1'
+      release_tag:
+        description: 'Release tag (e.g., v1.0.0-f42)'
+        required: true
+      customize_args:
+        description: 'Space-separated arguments for virt-customize'
+        required: true
+        # Example from the tobiko role: install packages and set hostname
+        default: >-
+          --install iperf3,iputils,nmap,nmap-ncat,nginx
+          --root-password password:tobiko
+          --selinux-relabel
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+
+    # Permission needed to create a release and upload assets
+    permissions:
+      contents: write
+
+    env:
+      # Set image file names based on inputs
+      IMAGE_FILE_BASE: Fedora-Cloud-Base-Generic-${{ inputs.fedora_version }}.x86_64
+
+      # Define our custom output image name
+      CUSTOM_IMAGE_FILE: fedora-custom-${{ inputs.fedora_version }}.qcow2
+      COMPRESSED_ARTIFACT_NAME: fedora-custom-${{ inputs.fedora_version }}.qcow2.gz
+
+      # Run virt-customize with LIBGUESTFS_BACKEND=direct
+      LIBGUESTFS_BACKEND: direct
+      LIBGUESTFS_DEBUG: '1'
+      LIBGUESTFS_TRACE: '1'
+
+    steps:
+      - name: 1. Extract Fedora Major Version and Construct URL
+        id: setup
+        run: |
+          # Extract major version from fedora_version (e.g., "42" from "42-1.1")
+          MAJOR_VERSION=$(echo "${{ inputs.fedora_version }}" | cut -d'-' -f1)
+          echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted major version: $MAJOR_VERSION"
+
+          # Construct the download URL
+          IMAGE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${MAJOR_VERSION}/Cloud/x86_64/images/${{ env.IMAGE_FILE_BASE }}.qcow2"
+          echo "image_url=$IMAGE_URL" >> $GITHUB_OUTPUT
+          echo "Download URL: $IMAGE_URL"
+
+      - name: 2. Install Dependencies
+        run: |
+          echo "Installing libguestfs-tools (for virt-customize), wget, and xz-utils..."
+          sudo apt-get update
+          sudo apt-get install -y libguestfs-tools wget xz-utils gzip
+
+      - name: 3. Download Base Fedora Image
+        run: |
+          echo "Downloading from ${{ steps.setup.outputs.image_url }}"
+          wget -O ${{ env.IMAGE_FILE_BASE }}.qcow2 ${{ steps.setup.outputs.image_url }}
+
+      - name: 4. Rename and Customize Image
+        run: |
+          # Rename the downloaded image to our custom name
+          mv ${{ env.IMAGE_FILE_BASE }}.qcow2 /tmp/${{ env.CUSTOM_IMAGE_FILE }}
+
+          # Workaround: move passt executable temporarily
+          PASST_PATH=$(which passt)
+          sudo mv $PASST_PATH $PASST_PATH.bak
+
+          echo "Running virt-customize with args: ${{ inputs.customize_args }}"
+
+          # virt-customize modifies the image file in-place
+          # The shell will correctly parse the space-separated arguments from the input
+          sudo LIBGUESTFS_BACKEND=direct LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1 virt-customize -x -a /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ inputs.customize_args }}
+          sudo mv $PASST_PATH.bak $PASST_PATH
+
+          # After sudo, the file is owned by root. Change ownership back
+          # to the runner user so the 'gzip' and 'upload' steps can read it.
+          echo "Resetting file ownership..."
+          sudo mv /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ env.CUSTOM_IMAGE_FILE }}
+          sudo chown $(whoami):$(whoami) ${{ env.CUSTOM_IMAGE_FILE }}
+
+      - name: 5. Compress Customized Image
+        run: |
+          echo "Compressing ${{ env.CUSTOM_IMAGE_FILE }} for release..."
+          gzip -k -9 ${{ env.CUSTOM_IMAGE_FILE }}
+          echo "Compressed artifact is: ${{ env.COMPRESSED_ARTIFACT_NAME }}"
+
+      - name: 6. Create GitHub Release and Upload Artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          # This is the tag you provided as input
+          tag_name: ${{ inputs.release_tag }}
+
+          # Title for the release
+          name: "Custom Fedora ${{ inputs.fedora_version }} Image (${{ inputs.release_tag }})"
+
+          # Release description
+          body: |
+            Customized Fedora ${{ inputs.fedora_version }} image built by GitHub Actions.
+
+            **Customizations:**
+            ```
+            ${{ inputs.customize_args }}
+            ```
+
+          # The file(s) to upload
+          files: ${{ env.COMPRESSED_ARTIFACT_NAME }}
