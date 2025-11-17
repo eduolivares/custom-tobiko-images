@@ -29,7 +29,7 @@ on:
 
 jobs:
   build-image:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     # Permission needed to create a release and upload assets
     permissions:
