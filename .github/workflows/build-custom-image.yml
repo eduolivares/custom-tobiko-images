@@ -50,9 +50,9 @@ jobs:
       - name: 2. Prepare Config Files
         run: |
           # Copy config files from the repository to /tmp for virt-customize
-          cp .github/workflows/config /tmp/config
-          cp .github/workflows/nginx_id.conf /tmp/nginx_id.conf
-          cp .github/workflows/iperf3-server.service /tmp/iperf3-server.service
+          cp conf/selinux-config /tmp/config
+          cp conf/nginx_id.conf /tmp/nginx_id.conf
+          cp conf/iperf3-server.service /tmp/iperf3-server.service
           echo "Config files copied to /tmp"
 
       - name: 3. Extract Fedora Major Version and Construct URL
