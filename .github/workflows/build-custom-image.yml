@@ -40,7 +40,6 @@ jobs:
 
       # Define our custom output image name
       CUSTOM_IMAGE_FILE: fedora-custom-${{ inputs.fedora_version }}.qcow2
-      COMPRESSED_ARTIFACT_NAME: fedora-custom-${{ inputs.fedora_version }}.qcow2.gz
 
     steps:
       - name: 1. Checkout Repository
@@ -69,9 +68,9 @@ jobs:
 
       - name: 4. Install Dependencies
         run: |
-          echo "Installing libguestfs-tools (for virt-customize), wget and gzip"
+          echo "Installing libguestfs-tools (for virt-customize) and wget"
           sudo apt-get update
-          sudo apt-get install -y libguestfs-tools wget gzip
+          sudo apt-get install -y libguestfs-tools wget
 
       - name: 5. Download Base Fedora Image
         run: |
@@ -92,17 +91,11 @@ jobs:
           # Move the customized image back to the working directory
           sudo mv /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ env.CUSTOM_IMAGE_FILE }}
 
-          # Change ownership back to the runner user so the 'gzip' and 'upload' steps can read it
+          # Change ownership back to the runner user so the file can be read
           echo "Resetting file ownership..."
           sudo chown $(whoami):$(whoami) ${{ env.CUSTOM_IMAGE_FILE }}
 
-      - name: 7. Compress Customized Image
-        run: |
-          echo "Compressing ${{ env.CUSTOM_IMAGE_FILE }} for release..."
-          gzip -k -9 ${{ env.CUSTOM_IMAGE_FILE }}
-          echo "Compressed artifact is: ${{ env.COMPRESSED_ARTIFACT_NAME }}"
-
-      - name: 8. Create GitHub Release and Upload Artifact
+      - name: 7. Create GitHub Release and Upload Artifact
         uses: softprops/action-gh-release@v2
         with:
           # This is the tag you provided as input
@@ -121,4 +114,4 @@ jobs:
             ```
 
           # The file(s) to upload
-          files: ${{ env.COMPRESSED_ARTIFACT_NAME }}
+          files: ${{ env.CUSTOM_IMAGE_FILE }}
