@@ -88,7 +88,7 @@ jobs:
 
           # virt-customize modifies the image file in-place
           # The shell will correctly parse the space-separated arguments from the input
-          sudo LIBGUESTFS_BACKEND=direct virt-customize -x -a /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ inputs.customize_args }}
+          sudo LIBGUESTFS_BACKEND=direct virt-customize -v -x -a /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ inputs.customize_args }}
 
           # Move the customized image back to the working directory
           sudo mv /tmp/${{ env.CUSTOM_IMAGE_FILE }} ${{ env.CUSTOM_IMAGE_FILE }}
